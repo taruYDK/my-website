@@ -34,14 +34,11 @@
             'https://api.cobalt.tools',
             'https://cobalt.api.unlimited.ps',
             'https://cobalt-api.murena.io',
-            'https://cobalt.1660.zip',
-            'https://cobalt.inst.moe',
             'https://cobalt.sh',
             'https://api.geron.dev',
-            'https://cobalt.smash-the-inter.net',
-            'https://cobalt.populas.org',
-            'https://cobalt.smash-the-inter.net',
-            'https://cobalt.onrender.com'
+            'https://cobalt.inst.moe',
+            'https://cobalt.1660.zip',
+            'https://cobalt.populas.org'
         ];
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -134,12 +131,8 @@
                             status = 'Online';
                             addLog(`接続成功: ${new URL(node).hostname}`);
                             break;
-                        } else {
-                            addLog(`応答なし(${res.status}): ${new URL(node).hostname}`, 'warn');
                         }
-                    } catch (e) {
-                        addLog(`通信拒否(CORS制限の可能性): ${new URL(node).hostname}`, 'error');
-                    }
+                    } catch (e) {}
                 }
                 setApiStatus(status);
             };
@@ -203,12 +196,8 @@
                             success = true;
                             addLog('解析に成功しました');
                             break;
-                        } else {
-                            addLog(`APIからエラー応答: ${data.text || '不明なエラー'}`, 'warn');
                         }
-                    } catch (err) {
-                        addLog(`このノードは現在利用できません`, 'error');
-                    }
+                    } catch (err) {}
                 }
 
                 if (!success) {
@@ -216,8 +205,8 @@
                         setResult({ url: cleanUrl, platform: 'DIRECT' });
                         addLog('直リンクとして処理します');
                     } else {
-                        setError('Twitter側の規制またはGitHub Pagesの制限によりブロックされました。モバイル通信で試すか、時間をおいてください。');
-                        addLog('全ノードで取得に失敗しました。CORSエラーが主な原因です。', 'error');
+                        setError('Twitter側の規制またはVercelの制限によりブロックされました。時間を置いて再試行するか、スマホの通信(4G/5G)に切り替えてください。');
+                        addLog('全ノードで取得に失敗しました。', 'error');
                     }
                 }
                 setLoading(false);
@@ -229,9 +218,10 @@
                 if (!result) return;
                 setDownloading(true);
                 addLog('ダウンロードを試行中...');
+                
                 try {
                     const response = await fetch(result.url, { mode: 'cors' });
-                    if (!response.ok) throw new Error('CORS Blocked');
+                    if (!response.ok) throw new Error('CORS');
                     const blob = await response.blob();
                     const blobUrl = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -239,14 +229,15 @@
                     a.download = `V-SAVER-${Date.now()}.mp4`;
                     document.body.appendChild(a);
                     a.click();
-                    setTimeout(() => { if (a.parentNode) document.body.removeChild(a); window.URL.revokeObjectURL(blobUrl); }, 200);
+                    setTimeout(() => { if (a.parentNode) document.body.removeChild(a); window.URL.revokeObjectURL(blobUrl); }, 500);
                     addLog('ローカル保存を開始しました');
                 } catch (err) { 
                     addLog('直接保存が制限されています。外部表示へ切り替えます。', 'warn');
-                    const win = window.open(result.url, '_blank');
-                    if (!win) {
-                        setError('ポップアップがブロックされました。リンクをコピーしてブラウザで開いてください。');
-                    }
+                    const a = document.createElement('a');
+                    a.href = result.url;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    a.click();
                 }
                 finally { setTimeout(() => setDownloading(false), 2000); }
             };
@@ -299,7 +290,6 @@
                                     value={customNode}
                                     onChange={(e) => setCustomNode(e.target.value)}
                                 />
-                                <p className="text-[10px] text-gray-500 mt-2">※GitHub Pagesでの運用時は独自のCORS解除済Nodeが推奨されます。</p>
                             </div>
                         )}
 
