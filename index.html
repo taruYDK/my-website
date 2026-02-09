@@ -31,8 +31,8 @@
         const { useState, useEffect, useRef } = React;
 
         const DEFAULT_NODES = [
-            'https://cobalt.inst.moe',
             'https://api.cobalt.tools',
+            'https://cobalt.inst.moe',
             'https://cobalt.sh',
             'https://cobalt.1660.zip',
             'https://cobalt.api.unlimited.ps',
@@ -53,7 +53,6 @@
                 'alert-circle': <><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></>,
                 'file-video': <><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="m10 11 5 3-5 3v-6z" /></>,
                 'download': <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></>,
-                'check-circle-2': <><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></>,
                 'smartphone': <><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></>,
                 'tablet': <><rect x="4" y="2" width="16" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></>,
                 'monitor': <><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></>,
@@ -119,8 +118,6 @@
                 addLog('全ノードの健全性を並列チェック中...');
                 
                 const nodes = customNode ? [customNode, ...DEFAULT_NODES] : DEFAULT_NODES;
-                
-                // 並列で全ノードをチェック
                 const checkPromises = nodes.map(async (node) => {
                     try {
                         const controller = new AbortController();
@@ -146,53 +143,42 @@
                     const sortedNodes = validNodes.map(r => r.node);
                     setActiveNodes(sortedNodes);
                     setApiStatus(`${validNodes.length} Active`);
-                    addLog(`${validNodes.length}個の有効なノードを確認。最速: ${new URL(sortedNodes[0]).hostname}`);
+                    addLog(`${validNodes.length}個のノードが生存中。最速: ${new URL(sortedNodes[0]).hostname}`);
                 } else {
                     setActiveNodes([]);
                     setApiStatus('All Dead');
-                    addLog('すべてのCobaltノードが応答していません', 'error');
+                    addLog('Cobaltノードは全滅しています', 'error');
                 }
             };
 
-            // FxTwitterをバックアップとして使用する関数
             const tryFxTwitter = async (tweetUrl) => {
                 addLog('バックアップエンジン(FxTwitter)を起動...');
                 try {
-                    // URLからIDとユーザー名を抽出
-                    // 形式: https://twitter.com/user/status/id
                     const match = tweetUrl.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/);
-                    if (!match) {
-                        throw new Error('URL解析不可');
-                    }
-                    const username = match[1];
+                    if (!match) return null;
                     const id = match[2];
                     
-                    const apiUrl = `https://api.fxtwitter.com/${username}/status/${id}`;
-                    addLog(`FxTwitterへリクエスト: ${id}`);
-                    
-                    const res = await fetch(apiUrl);
-                    if (!res.ok) throw new Error(`FxTwitter Error: ${res.status}`);
+                    addLog(`FixupX APIへ照会: ${id}`);
+                    const res = await fetch(`https://api.fxtwitter.com/status/${id}`);
+                    if (!res.ok) throw new Error('API Error');
                     
                     const data = await res.json();
-                    
-                    // 動画URLを探す
                     let videoUrl = null;
-                    if (data.tweet && data.tweet.media && data.tweet.media.videos && data.tweet.media.videos.length > 0) {
+                    
+                    if (data.tweet?.media?.videos?.[0]?.url) {
                         videoUrl = data.tweet.media.videos[0].url;
-                    } else if (data.tweet && data.tweet.url && data.tweet.url.includes('video.twimg.com')) {
+                    } else if (data.tweet?.url?.includes('video.twimg.com')) {
                         videoUrl = data.tweet.url;
                     }
 
                     if (videoUrl) {
-                        addLog('FxTwitter経由で動画特定成功');
+                        addLog('動画データの特定に成功');
                         return { url: videoUrl, platform: 'FxTwitter (Backup)' };
-                    } else {
-                        throw new Error('動画が見つかりませんでした');
                     }
                 } catch (e) {
-                    addLog(`FxTwitter失敗: ${e.message}`, 'error');
-                    return null;
+                    addLog(`バックアップエンジン失敗: ${e.message}`, 'error');
                 }
+                return null;
             };
 
             const handleFetch = async (e) => {
@@ -220,13 +206,12 @@
                     try {
                         const urlObj = new URL(cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl}`);
                         cleanUrl = `https://twitter.com${urlObj.pathname}`;
-                        addLog('URLの正規化を行いました');
                     } catch (err) {}
                 }
 
                 let success = false;
                 
-                // 1. まずCobalt APIを試す
+                // 1. Cobalt API 試行
                 const targetNodes = activeNodes.length > 0 ? activeNodes : (customNode ? [customNode, ...DEFAULT_NODES] : DEFAULT_NODES);
                 const configs = [ { videoQuality: '1080', twitterGif: true }, { } ];
 
@@ -252,10 +237,7 @@
                             });
                             clearTimeout(id);
                             
-                            if (response.status === 429) {
-                                addLog(`制限中(429): ${new URL(node).hostname}`, 'warn');
-                                continue;
-                            }
+                            if (response.status === 429) continue;
 
                             const data = await response.json();
                             if (data.url || (data.status === 'picker' && data.picker?.[0]?.url)) {
@@ -268,9 +250,9 @@
                     }
                 }
 
-                // 2. Cobaltが全滅ならFxTwitterを試す (Dual Engine)
+                // 2. FxTwitter 試行 (Cobalt失敗時)
                 if (!success && (cleanUrl.includes('twitter.com') || cleanUrl.includes('x.com'))) {
-                    addLog('全Cobaltノード失敗。バックアップエンジンへ切り替え...');
+                    addLog('全Cobaltノード応答なし。バックアップへ切り替えます...');
                     const backupResult = await tryFxTwitter(cleanUrl);
                     if (backupResult) {
                         setResult(backupResult);
@@ -283,7 +265,7 @@
                         setResult({ url: cleanUrl, platform: 'DIRECT' });
                         addLog('直リンクモード');
                     } else {
-                        setError('すべての解析エンジンで失敗しました。Twitterの規制が強すぎる可能性があります。時間を置いてください。');
+                        setError('すべての解析手段が規制されています。時間をおいて再試行してください。');
                         addLog('全エンジンで取得失敗', 'error');
                     }
                 }
