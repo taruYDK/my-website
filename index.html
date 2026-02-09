@@ -213,8 +213,8 @@
                         setResult({ url: cleanUrl, platform: 'DIRECT' });
                         addLog('直リンクとして処理します');
                     } else {
-                        setError('Twitter側の規制により全サーバーがブロックされました。時間を置いて再試行するか、Wi-Fiを切ってモバイル通信で試してください。');
-                        addLog('全ノードで取得に失敗しました', 'error');
+                        setError('Twitter側の規制またはGitHub Pagesの制限によりブロックされました。モバイル通信で試すか、時間をおいてください。');
+                        addLog('全ノードで取得に失敗しました。CORSエラーが主な原因です。', 'error');
                     }
                 }
                 setLoading(false);
@@ -225,9 +225,10 @@
                 e.preventDefault();
                 if (!result) return;
                 setDownloading(true);
-                addLog('ダウンロードを開始します...');
+                addLog('ダウンロードを試行中...');
                 try {
                     const response = await fetch(result.url, { mode: 'cors' });
+                    if (!response.ok) throw new Error('CORS Blocked');
                     const blob = await response.blob();
                     const blobUrl = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -236,9 +237,13 @@
                     document.body.appendChild(a);
                     a.click();
                     setTimeout(() => { if (a.parentNode) document.body.removeChild(a); window.URL.revokeObjectURL(blobUrl); }, 200);
+                    addLog('ローカル保存を開始しました');
                 } catch (err) { 
-                    addLog('外部ブラウザで開きます', 'warn');
-                    window.open(result.url, '_blank'); 
+                    addLog('直接保存が制限されています。外部表示へ切り替えます。', 'warn');
+                    const win = window.open(result.url, '_blank');
+                    if (!win) {
+                        setError('ポップアップがブロックされました。リンクをコピーしてブラウザで開いてください。');
+                    }
                 }
                 finally { setTimeout(() => setDownloading(false), 2000); }
             };
@@ -291,6 +296,7 @@
                                     value={customNode}
                                     onChange={(e) => setCustomNode(e.target.value)}
                                 />
+                                <p className="text-[10px] text-gray-500 mt-2">※GitHub Pagesでの運用時は独自のCORS解除済Nodeが推奨されます。</p>
                             </div>
                         )}
 
