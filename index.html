@@ -183,7 +183,7 @@
                             },
                             body: JSON.stringify({ 
                                 url: cleanUrl, 
-                                videoQuality: '720', 
+                                videoQuality: '1080', 
                                 downloadMode: 'video'
                             }),
                             signal: controller.signal
@@ -217,19 +217,31 @@
                 e.preventDefault();
                 if (!result) return;
                 setDownloading(true);
-                addLog('ダウンロードを試行中...');
+                addLog('強制ダウンロードを試行中...');
                 
                 try {
-                    const response = await fetch(result.url, { mode: 'cors' });
+                    const response = await fetch(result.url, { 
+                        method: 'GET',
+                        mode: 'cors',
+                        cache: 'no-cache'
+                    });
+                    
                     if (!response.ok) throw new Error('CORS');
+                    
                     const blob = await response.blob();
                     const blobUrl = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
+                    a.style.display = 'none';
                     a.href = blobUrl;
                     a.download = `V-SAVER-${Date.now()}.mp4`;
                     document.body.appendChild(a);
                     a.click();
-                    setTimeout(() => { if (a.parentNode) document.body.removeChild(a); window.URL.revokeObjectURL(blobUrl); }, 500);
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(blobUrl);
+                    }, 2000);
+                    
                     addLog('ローカル保存を開始しました');
                 } catch (err) { 
                     addLog('直接保存が制限されています。外部表示へ切り替えます。', 'warn');
@@ -237,7 +249,9 @@
                     a.href = result.url;
                     a.target = '_blank';
                     a.rel = 'noopener noreferrer';
+                    a.download = `V-SAVER-${Date.now()}.mp4`;
                     a.click();
+                    setError('ブラウザのセキュリティ制限により、直接保存できませんでした。開いた動画画面を長押し、または右クリックして保存してください。');
                 }
                 finally { setTimeout(() => setDownloading(false), 2000); }
             };
@@ -364,11 +378,27 @@
                                     <div className="p-6 space-y-8 font-sans">
                                         <div className="bg-black/40 rounded-[2.5rem] aspect-video relative overflow-hidden ring-1 ring-white/10 flex items-center justify-center shadow-inner group">
                                             {!videoError ? (
-                                                <video ref={videoRef} key={result.url} src={result.url} className="w-full h-full object-contain relative z-10" controls playsInline webkit-playsinline="true" onError={() => setVideoError(true)} />
+                                                <video 
+                                                    ref={videoRef} 
+                                                    key={result.url} 
+                                                    src={result.url} 
+                                                    className="w-full h-full object-contain relative z-10" 
+                                                    controls 
+                                                    playsInline 
+                                                    webkit-playsinline="true"
+                                                    crossOrigin="anonymous"
+                                                    onError={() => {
+                                                        addLog('プレビュー動画の読み込みに失敗しました。CORS制限の可能性があります。', 'warn');
+                                                        setVideoError(true);
+                                                    }} 
+                                                />
                                             ) : (
                                                 <div className="flex flex-col items-center gap-4 p-12 text-center z-10">
                                                     <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-2 shadow-xl ring-1 ring-white/10"><Icon name="file-video" size={40} className="opacity-20 text-indigo-400" /></div>
-                                                    <div className="space-y-1"><p className="text-lg font-black tracking-tight text-white/90 uppercase italic">Restricted Server</p><p className="text-xs text-gray-500 max-w-[220px] font-medium leading-relaxed">保護されたサーバーです。下のボタンから保存を試してください。</p></div>
+                                                    <div className="space-y-1">
+                                                        <p className="text-lg font-black tracking-tight text-white/90 uppercase italic">Preview Restricted</p>
+                                                        <p className="text-xs text-gray-500 max-w-[220px] font-medium leading-relaxed">サーバーのセキュリティ制限によりプレビューできません。下のボタンから直接保存してください。</p>
+                                                    </div>
                                                 </div>
                                             )}
                                             <div className="absolute top-4 left-4 z-20"><div className="bg-indigo-600/90 backdrop-blur-md text-white text-[10px] px-3 py-1.5 rounded-xl font-black uppercase border border-white/20 shadow-lg tracking-widest italic">{result.platform || 'Detected'}</div></div>
