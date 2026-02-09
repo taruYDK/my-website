@@ -114,24 +114,16 @@
 
             const checkApiStatus = async () => {
                 setApiStatus('Checking...');
-                addLog('全ノードの健全性チェックを開始...');
+                addLog('サーバー健全性チェック...');
                 let status = 'Offline';
                 const nodes = customNode ? [customNode, ...DEFAULT_NODES] : DEFAULT_NODES;
                 for (const node of nodes) {
                     try {
                         const controller = new AbortController();
                         const id = setTimeout(() => controller.abort(), 3500);
-                        const res = await fetch(`${node}/api/serverInfo`, { 
-                            method: 'GET', 
-                            signal: controller.signal,
-                            mode: 'cors'
-                        });
+                        const res = await fetch(`${node}/api/serverInfo`, { method: 'GET', signal: controller.signal });
                         clearTimeout(id);
-                        if (res.ok) {
-                            status = 'Online';
-                            addLog(`接続成功: ${new URL(node).hostname}`);
-                            break;
-                        }
+                        if (res.ok) { status = 'Online'; break; }
                     } catch (e) {}
                 }
                 setApiStatus(status);
@@ -154,7 +146,6 @@
                     if (match) {
                         setResult({ url: `https://video.twimg.com/${match[1]}`, platform: 'V-EXTRACT' });
                         setLoading(false);
-                        addLog('Pormoリンクから高速抽出しました');
                         return;
                     }
                 }
@@ -163,7 +154,6 @@
                     try {
                         const urlObj = new URL(cleanUrl);
                         cleanUrl = `https://twitter.com${urlObj.pathname}`;
-                        addLog('Twitter URL正規化完了');
                     } catch (err) {}
                 }
 
@@ -172,29 +162,25 @@
                 
                 for (const node of nodes) {
                     try {
-                        addLog(`ノード試行: ${new URL(node).hostname}`);
+                        addLog(`Node試行: ${new URL(node).hostname}`);
                         const controller = new AbortController();
                         const id = setTimeout(() => controller.abort(), 12000);
                         const response = await fetch(`${node}/api/json`, {
                             method: 'POST',
-                            headers: { 
-                                'Accept': 'application/json', 
-                                'Content-Type': 'application/json' 
-                            },
+                            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
                             body: JSON.stringify({ 
                                 url: cleanUrl, 
-                                videoQuality: '1080', 
-                                downloadMode: 'video'
+                                videoQuality: '720', 
+                                downloadMode: 'video' 
                             }),
                             signal: controller.signal
                         });
                         clearTimeout(id);
-                        
                         const data = await response.json();
                         if (data.url || (data.status === 'picker' && data.picker?.[0]?.url)) {
                             setResult({ url: data.url || data.picker[0].url, platform: 'NETWORK' });
                             success = true;
-                            addLog('解析に成功しました');
+                            addLog('解析成功');
                             break;
                         }
                     } catch (err) {}
@@ -203,10 +189,8 @@
                 if (!success) {
                     if (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(cleanUrl)) {
                         setResult({ url: cleanUrl, platform: 'DIRECT' });
-                        addLog('直リンクとして処理します');
                     } else {
-                        setError('Twitter側の規制またはVercelの制限によりブロックされました。時間を置いて再試行するか、スマホの通信(4G/5G)に切り替えてください。');
-                        addLog('全ノードで取得に失敗しました。', 'error');
+                        setError('Twitter側の規制によりブロックされました。モバイル通信(4G/5G)で試してください。');
                     }
                 }
                 setLoading(false);
@@ -217,41 +201,27 @@
                 e.preventDefault();
                 if (!result) return;
                 setDownloading(true);
-                addLog('強制ダウンロードを試行中...');
+                addLog('保存プロセス実行中...');
                 
                 try {
-                    const response = await fetch(result.url, { 
-                        method: 'GET',
-                        mode: 'cors',
-                        cache: 'no-cache'
-                    });
-                    
-                    if (!response.ok) throw new Error('CORS');
-                    
+                    const response = await fetch(result.url, { method: 'GET' });
+                    if (!response.ok) throw new Error();
                     const blob = await response.blob();
                     const blobUrl = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    a.style.display = 'none';
                     a.href = blobUrl;
                     a.download = `V-SAVER-${Date.now()}.mp4`;
                     document.body.appendChild(a);
                     a.click();
-                    
-                    setTimeout(() => {
-                        document.body.removeChild(a);
-                        window.URL.revokeObjectURL(blobUrl);
-                    }, 2000);
-                    
-                    addLog('ローカル保存を開始しました');
+                    setTimeout(() => { document.body.removeChild(a); window.URL.revokeObjectURL(blobUrl); }, 1000);
                 } catch (err) { 
-                    addLog('直接保存が制限されています。外部表示へ切り替えます。', 'warn');
+                    addLog('ブラウザ制限により別タブで開きます', 'warn');
                     const a = document.createElement('a');
                     a.href = result.url;
                     a.target = '_blank';
                     a.rel = 'noopener noreferrer';
-                    a.download = `V-SAVER-${Date.now()}.mp4`;
                     a.click();
-                    setError('ブラウザのセキュリティ制限により、直接保存できませんでした。開いた動画画面を長押し、または右クリックして保存してください。');
+                    setError('ブラウザのセキュリティ制限により自動保存できませんでした。開いた動画画面を【長押し】または【右クリック】して保存してください。');
                 }
                 finally { setTimeout(() => setDownloading(false), 2000); }
             };
@@ -263,8 +233,7 @@
                 el.style.position = 'fixed'; el.style.opacity = '0';
                 document.body.appendChild(el); el.select();
                 document.execCommand('copy'); document.body.removeChild(el);
-                setCopied(true); addLog('リンクをコピーしました');
-                setTimeout(() => setCopied(false), 2000);
+                setCopied(true); setTimeout(() => setCopied(false), 2000);
             };
 
             return (
@@ -276,34 +245,20 @@
 
                     <div className="relative z-10 max-w-xl mx-auto px-6 pt-12">
                         <div className="flex justify-between items-center mb-8">
-                            <button 
-                                onClick={checkApiStatus}
-                                className="flex items-center gap-2 bg-white/5 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 active:scale-95 transition-all"
-                            >
-                                <Icon name={apiStatus === 'Checking...' ? 'loader-2' : 'activity'} size={14} className={apiStatus === 'Online' ? 'text-green-400' : apiStatus === 'Busy' ? 'text-yellow-400' : (apiStatus === 'Limited' ? 'text-orange-400' : 'text-red-400')} />
+                            <button onClick={checkApiStatus} className="flex items-center gap-2 bg-white/5 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 active:scale-95 transition-all">
+                                <Icon name={apiStatus === 'Checking...' ? 'loader-2' : 'activity'} size={14} className={apiStatus === 'Online' ? 'text-green-400' : (apiStatus === 'Limited' ? 'text-orange-400' : 'animate-spin text-gray-400')} />
                                 <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Node: {apiStatus}</span>
-                                <Icon name="refresh-cw" size={10} className={`ml-1 opacity-40 ${apiStatus === 'Checking...' ? 'animate-spin' : ''}`} />
                             </button>
                             <div className="flex gap-2">
-                                <button onClick={() => setShowLogs(!showLogs)} className={`p-2 rounded-xl transition-colors ${showLogs ? 'bg-indigo-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
-                                    <Icon name="terminal" size={20} />
-                                </button>
-                                <button onClick={() => setShowSettings(!showSettings)} className={`p-2 rounded-xl transition-colors ${showSettings ? 'bg-indigo-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
-                                    <Icon name="settings" size={20} />
-                                </button>
+                                <button onClick={() => setShowLogs(!showLogs)} className={`p-2 rounded-xl transition-colors ${showLogs ? 'bg-indigo-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}><Icon name="terminal" size={20} /></button>
+                                <button onClick={() => setShowSettings(!showSettings)} className={`p-2 rounded-xl transition-colors ${showSettings ? 'bg-indigo-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}><Icon name="settings" size={20} /></button>
                             </div>
                         </div>
 
                         {showSettings && (
                             <div className="bg-indigo-500/10 border border-indigo-500/20 p-6 rounded-[2rem] mb-8 backdrop-blur-xl animate-in fade-in zoom-in duration-300">
                                 <p className="text-xs font-black uppercase tracking-widest text-indigo-400 mb-4">Custom Node Setting</p>
-                                <input 
-                                    type="text" 
-                                    placeholder="https://your-cobalt-api.com" 
-                                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm focus:ring-1 focus:ring-indigo-500 transition-all outline-none"
-                                    value={customNode}
-                                    onChange={(e) => setCustomNode(e.target.value)}
-                                />
+                                <input type="text" placeholder="https://your-cobalt-api.com" className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm focus:ring-1 focus:ring-indigo-500 outline-none transition-all" value={customNode} onChange={(e) => setCustomNode(e.target.value)} />
                             </div>
                         )}
 
@@ -327,108 +282,56 @@
 
                         <header className="text-center mb-10">
                             <div className="inline-flex items-center justify-center p-1 rounded-3xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-[0_0_30px_rgba(99,102,241,0.3)] mb-6 transform hover:scale-105 transition-transform duration-500">
-                                <div className="bg-[#020205] rounded-[1.4rem] p-4">
-                                    <Icon name="zap" size={32} className="text-indigo-400" />
-                                </div>
+                                <div className="bg-[#020205] rounded-[1.4rem] p-4"><Icon name="zap" size={32} className="text-indigo-400" /></div>
                             </div>
                             <h1 className="text-5xl font-black tracking-tighter mb-2 italic uppercase">V-SAVER<span className="text-indigo-500">.</span></h1>
                             <p className="text-[10px] text-gray-500 font-bold tracking-[0.3em] uppercase opacity-60">Universal Extract Engine</p>
                         </header>
 
-                        <div className="bg-white/5 backdrop-blur-2xl p-2 rounded-[2.5rem] border border-white/10 shadow-2xl mb-8 transition-all duration-500 hover:border-indigo-500/30">
+                        <div className="bg-white/5 backdrop-blur-2xl p-2 rounded-[2.5rem] border border-white/10 shadow-2xl mb-8 hover:border-indigo-500/30 transition-all duration-500">
                             <form onSubmit={handleFetch} className="relative flex flex-col gap-2">
                                 <div className="relative">
-                                    <input
-                                        type="text"
-                                        placeholder="動画のURLをペースト..."
-                                        className="w-full bg-transparent border-none rounded-3xl py-6 pl-14 pr-12 text-white focus:ring-0 text-lg placeholder:text-gray-600 font-medium"
-                                        value={url}
-                                        onChange={(e) => setUrl(e.target.value)}
-                                    />
+                                    <input type="text" placeholder="動画のURLをペースト..." className="w-full bg-transparent border-none rounded-3xl py-6 pl-14 pr-12 text-white focus:ring-0 text-lg placeholder:text-gray-600 font-medium" value={url} onChange={(e) => setUrl(e.target.value)} />
                                     <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-500"><Icon name="link-2" size={24} /></div>
-                                    {url && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setUrl('')}
-                                            className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
-                                        >
-                                            <Icon name="x" size={20} />
-                                        </button>
-                                    )}
+                                    {url && <button type="button" onClick={() => setUrl('')} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"><Icon name="x" size={20} /></button>}
                                 </div>
-                                <button
-                                    type="submit"
-                                    disabled={loading || !url}
-                                    className="w-full bg-white text-black font-black py-5 rounded-[1.8rem] hover:bg-indigo-500 hover:text-white transition-all flex items-center justify-center gap-2 disabled:opacity-20 active:scale-[0.97] shadow-lg overflow-hidden"
-                                >
+                                <button type="submit" disabled={loading || !url} className="w-full bg-white text-black font-black py-5 rounded-[1.8rem] hover:bg-indigo-500 hover:text-white transition-all flex items-center justify-center gap-2 disabled:opacity-20 active:scale-[0.97] shadow-lg overflow-hidden">
                                     {loading ? <Icon name="loader-2" className="animate-spin" size={24} /> : <><span className="text-lg uppercase font-black">解析・自動抽出</span><Icon name="chevron-right" size={20} /></>}
                                 </button>
                             </form>
                         </div>
 
-                        {error && (
-                            <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-5 rounded-[1.8rem] flex items-center gap-4 mb-8 backdrop-blur-md">
-                                <Icon name="alert-circle" size={20} /><p className="text-sm font-bold">{error}</p>
-                            </div>
-                        )}
+                        {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-5 rounded-[1.8rem] flex items-center gap-4 mb-8 backdrop-blur-md"><Icon name="alert-circle" size={20} /><p className="text-sm font-bold">{error}</p></div>}
 
                         {result && (
                             <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-6">
                                 <div className="bg-white/5 backdrop-blur-3xl rounded-[3rem] border border-white/10 p-2 shadow-2xl overflow-hidden">
-                                    <div className="p-6 space-y-8 font-sans">
+                                    <div className="p-6 space-y-8">
                                         <div className="bg-black/40 rounded-[2.5rem] aspect-video relative overflow-hidden ring-1 ring-white/10 flex items-center justify-center shadow-inner group">
                                             {!videoError ? (
-                                                <video 
-                                                    ref={videoRef} 
-                                                    key={result.url} 
-                                                    src={result.url} 
-                                                    className="w-full h-full object-contain relative z-10" 
-                                                    controls 
-                                                    playsInline 
-                                                    webkit-playsinline="true"
-                                                    crossOrigin="anonymous"
-                                                    onError={() => {
-                                                        addLog('プレビュー動画の読み込みに失敗しました。CORS制限の可能性があります。', 'warn');
-                                                        setVideoError(true);
-                                                    }} 
-                                                />
+                                                <video ref={videoRef} key={result.url} src={result.url} className="w-full h-full object-contain relative z-10" controls playsInline webkit-playsinline="true" onError={() => setVideoError(true)} />
                                             ) : (
                                                 <div className="flex flex-col items-center gap-4 p-12 text-center z-10">
                                                     <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-2 shadow-xl ring-1 ring-white/10"><Icon name="file-video" size={40} className="opacity-20 text-indigo-400" /></div>
-                                                    <div className="space-y-1">
-                                                        <p className="text-lg font-black tracking-tight text-white/90 uppercase italic">Preview Restricted</p>
-                                                        <p className="text-xs text-gray-500 max-w-[220px] font-medium leading-relaxed">サーバーのセキュリティ制限によりプレビューできません。下のボタンから直接保存してください。</p>
-                                                    </div>
+                                                    <p className="text-lg font-black tracking-tight text-white/90 uppercase italic">Preview Locked</p>
                                                 </div>
                                             )}
-                                            <div className="absolute top-4 left-4 z-20"><div className="bg-indigo-600/90 backdrop-blur-md text-white text-[10px] px-3 py-1.5 rounded-xl font-black uppercase border border-white/20 shadow-lg tracking-widest italic">{result.platform || 'Detected'}</div></div>
+                                            <div className="absolute top-4 left-4 z-20"><div className="bg-indigo-600/90 backdrop-blur-md text-white text-[10px] px-3 py-1.5 rounded-xl font-black uppercase border border-white/20 shadow-lg tracking-widest italic">{result.platform}</div></div>
                                         </div>
                                         <div className="space-y-4">
-                                            <button onClick={startDownload} disabled={downloading} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] animate-gradient-x text-white font-black py-6 rounded-[2.5rem] flex items-center justify-center gap-4 hover:shadow-[0_0_40px_rgba(99,102,241,0.4)] hover:scale-[1.02] transition-all active:scale-[0.97] disabled:opacity-50 font-black uppercase tracking-tighter">
+                                            <button onClick={startDownload} disabled={downloading} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] animate-gradient-x text-white font-black py-6 rounded-[2.5rem] flex items-center justify-center gap-4 hover:shadow-[0_0_40px_rgba(99,102,241,0.4)] hover:scale-[1.02] transition-all active:scale-[0.97] disabled:opacity-50 uppercase tracking-tighter">
                                                 {downloading ? <Icon name="loader-2" className="animate-spin" size={28} /> : <Icon name="download" size={28} />}<span className="text-xl">ビデオを保存</span>
                                             </button>
                                             <button onClick={copyUrl} className="w-full flex items-center justify-center gap-3 bg-white/5 text-gray-300 font-bold py-5 rounded-[2rem] border border-white/10 hover:bg-white/10 transition-all active:scale-[0.95] backdrop-blur-md">
-                                                {copied ? <Icon name="check-circle-2" size={20} className="text-green-400" /> : <Icon name="copy" size={20} />}<span className="text-lg font-bold tracking-tight uppercase">直リンクをコピー</span>
+                                                {copied ? <Icon name="check-circle-2" size={20} className="text-green-400" /> : <Icon name="copy" size={20} />}<span className="text-lg uppercase">直リンクをコピー</span>
                                             </button>
-                                        </div>
-                                        <div className="bg-indigo-500/5 p-6 rounded-[2.2rem] border border-indigo-500/20 backdrop-blur-md relative overflow-hidden font-sans">
-                                            <div className="absolute top-0 right-0 p-4 opacity-10">{device === 'ios' && <Icon name="smartphone" size={60} />}{device === 'android' && <Icon name="tablet" size={60} />}{device === 'web' && <Icon name="monitor" size={60} />}</div>
-                                            <div className="relative flex gap-4"><div className="flex-none w-10 h-10 bg-indigo-500/20 rounded-2xl flex items-center justify-center"><Icon name="mouse-pointer-2" size={20} className="text-indigo-400" /></div>
-                                                <div className="space-y-4 flex-1"><p className="text-indigo-300 font-black text-sm pt-2 uppercase tracking-widest">{device === 'ios' ? 'iPhone' : device === 'android' ? 'Android' : 'PC (Chrome/Edge)'} Guide</p>
-                                                    <div className="space-y-3 font-medium">
-                                                        {device === 'ios' && <><div className="flex gap-3 text-[11px] text-gray-400 leading-relaxed"><span className="flex-none w-5 h-5 bg-white/10 text-white text-[9px] flex items-center justify-center rounded-full font-black">1</span><p><span className="text-white font-bold underline decoration-indigo-500 underline-offset-4 font-sans uppercase">「直リンクをコピー」</span>してSafariに貼り付け</p></div><div className="flex gap-3 text-[11px] text-gray-400 leading-relaxed"><span className="flex-none w-5 h-5 bg-white/10 text-white text-[9px] flex items-center justify-center rounded-full font-black">2</span><p>共有ボタン(□↑)から<span className="text-white font-bold underline decoration-indigo-500 underline-offset-4">「"ファイル"に保存」</span>を選択</p></div></>}
-                                                        {device === 'android' && <><div className="flex gap-3 text-[11px] text-gray-400 leading-relaxed"><span className="flex-none w-5 h-5 bg-white/10 text-white text-[9px] flex items-center justify-center rounded-full font-black">1</span><p><span className="text-white font-bold underline decoration-indigo-500 underline-offset-4 uppercase">「ビデオを保存」</span>をタップ</p></div><div className="flex gap-3 text-[11px] text-gray-400 leading-relaxed"><span className="flex-none w-5 h-5 bg-white/10 text-white text-[9px] flex items-center justify-center rounded-full font-black">2</span><p>動画を<span className="text-white font-bold underline decoration-indigo-500 underline-offset-4 uppercase">長押し</span>して保存を選択</p></div></>}
-                                                        {device === 'web' && <><div className="flex gap-3 text-[11px] text-gray-400 leading-relaxed"><span className="flex-none w-5 h-5 bg-white/10 text-white text-[9px] flex items-center justify-center rounded-full font-black">1</span><p><span className="text-white font-bold underline decoration-indigo-500 underline-offset-4 font-sans uppercase tracking-widest font-black">「ビデオを保存」</span>をクリック</p></div><div className="flex gap-3 text-[11px] text-gray-400 leading-relaxed"><span className="flex-none w-5 h-5 bg-white/10 text-white text-[9px] flex items-center justify-center rounded-full font-black">2</span><p>保存されず動画が開いた場合は、動画上で<span className="text-white font-bold underline decoration-indigo-500 underline-offset-4 uppercase tracking-widest font-black">右クリック</span>し「名前を付けて保存」</p></div></>}
-                                                    </div>
-                                                </div>
-                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        <footer className="mt-20 text-center space-y-6 opacity-20 group hover:opacity-100 transition-opacity duration-500 font-sans">
+                        <footer className="mt-20 text-center space-y-6 opacity-20 hover:opacity-100 transition-opacity duration-500">
                             <div className="flex justify-center gap-8 text-gray-500 text-[10px] font-black uppercase tracking-widest">
                                 <div className="flex flex-col items-center gap-2"><Icon name="shield-check" size={20} /><span>Secure</span></div>
                                 <div className="flex flex-col items-center gap-2"><Icon name="zap" size={20} /><span>Fast</span></div>
