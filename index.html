@@ -31,14 +31,17 @@
         const { useState, useEffect, useRef } = React;
 
         const DEFAULT_NODES = [
+            'https://cobalt.inst.moe',
             'https://api.cobalt.tools',
+            'https://cobalt.sh',
+            'https://cobalt.1660.zip',
             'https://cobalt.api.unlimited.ps',
             'https://cobalt-api.murena.io',
-            'https://cobalt.sh',
             'https://api.geron.dev',
-            'https://cobalt.inst.moe',
-            'https://cobalt.1660.zip',
-            'https://cobalt.populas.org'
+            'https://cobalt.populas.org',
+            'https://cobalt.smash-the-inter.net',
+            'https://cobalt.aur1.st',
+            'https://cobalt.nao.gd'
         ];
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -50,7 +53,6 @@
                 'alert-circle': <><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></>,
                 'file-video': <><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="m10 11 5 3-5 3v-6z" /></>,
                 'download': <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></>,
-                'copy': <><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>,
                 'check-circle-2': <><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></>,
                 'smartphone': <><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></>,
                 'tablet': <><rect x="4" y="2" width="16" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></>,
@@ -89,10 +91,10 @@
             const [downloading, setDownloading] = useState(false);
             const [error, setError] = useState(null);
             const [result, setResult] = useState(null);
-            const [copied, setCopied] = useState(false);
             const [videoError, setVideoError] = useState(false);
             const [device, setDevice] = useState('web');
             const [apiStatus, setApiStatus] = useState('Checking...');
+            const [activeNodes, setActiveNodes] = useState([]);
             const [showSettings, setShowSettings] = useState(false);
             const [showLogs, setShowLogs] = useState(false);
             const [customNode, setCustomNode] = useState('');
@@ -114,27 +116,90 @@
 
             const checkApiStatus = async () => {
                 setApiStatus('Checking...');
-                addLog('サーバー健全性チェック...');
-                let status = 'Offline';
+                addLog('全ノードの健全性を並列チェック中...');
+                
                 const nodes = customNode ? [customNode, ...DEFAULT_NODES] : DEFAULT_NODES;
-                for (const node of nodes) {
+                
+                // 並列で全ノードをチェック
+                const checkPromises = nodes.map(async (node) => {
                     try {
                         const controller = new AbortController();
-                        const id = setTimeout(() => controller.abort(), 3500);
-                        const res = await fetch(`${node}/api/serverInfo`, { method: 'GET', signal: controller.signal });
+                        const id = setTimeout(() => controller.abort(), 3000);
+                        const start = Date.now();
+                        const res = await fetch(`${node}/api/serverInfo`, { 
+                            method: 'GET', 
+                            signal: controller.signal
+                        });
                         clearTimeout(id);
-                        if (res.ok) { status = 'Online'; break; }
-                    } catch (e) {}
+                        if (res.ok) {
+                            const latency = Date.now() - start;
+                            return { node, latency };
+                        }
+                    } catch (e) { }
+                    return null;
+                });
+
+                const results = await Promise.all(checkPromises);
+                const validNodes = results.filter(r => r !== null).sort((a, b) => a.latency - b.latency);
+                
+                if (validNodes.length > 0) {
+                    const sortedNodes = validNodes.map(r => r.node);
+                    setActiveNodes(sortedNodes);
+                    setApiStatus(`${validNodes.length} Active`);
+                    addLog(`${validNodes.length}個の有効なノードを確認。最速: ${new URL(sortedNodes[0]).hostname}`);
+                } else {
+                    setActiveNodes([]);
+                    setApiStatus('All Dead');
+                    addLog('すべてのCobaltノードが応答していません', 'error');
                 }
-                setApiStatus(status);
+            };
+
+            // FxTwitterをバックアップとして使用する関数
+            const tryFxTwitter = async (tweetUrl) => {
+                addLog('バックアップエンジン(FxTwitter)を起動...');
+                try {
+                    // URLからIDとユーザー名を抽出
+                    // 形式: https://twitter.com/user/status/id
+                    const match = tweetUrl.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/);
+                    if (!match) {
+                        throw new Error('URL解析不可');
+                    }
+                    const username = match[1];
+                    const id = match[2];
+                    
+                    const apiUrl = `https://api.fxtwitter.com/${username}/status/${id}`;
+                    addLog(`FxTwitterへリクエスト: ${id}`);
+                    
+                    const res = await fetch(apiUrl);
+                    if (!res.ok) throw new Error(`FxTwitter Error: ${res.status}`);
+                    
+                    const data = await res.json();
+                    
+                    // 動画URLを探す
+                    let videoUrl = null;
+                    if (data.tweet && data.tweet.media && data.tweet.media.videos && data.tweet.media.videos.length > 0) {
+                        videoUrl = data.tweet.media.videos[0].url;
+                    } else if (data.tweet && data.tweet.url && data.tweet.url.includes('video.twimg.com')) {
+                        videoUrl = data.tweet.url;
+                    }
+
+                    if (videoUrl) {
+                        addLog('FxTwitter経由で動画特定成功');
+                        return { url: videoUrl, platform: 'FxTwitter (Backup)' };
+                    } else {
+                        throw new Error('動画が見つかりませんでした');
+                    }
+                } catch (e) {
+                    addLog(`FxTwitter失敗: ${e.message}`, 'error');
+                    return null;
+                }
             };
 
             const handleFetch = async (e) => {
                 if (e) e.preventDefault();
                 let cleanUrl = url.trim();
                 if (!cleanUrl) return;
-                if (!cleanUrl.startsWith('http')) cleanUrl = 'https://' + cleanUrl;
-
+                
                 setLoading(true);
                 setError(null);
                 setResult(null);
@@ -146,94 +211,115 @@
                     if (match) {
                         setResult({ url: `https://video.twimg.com/${match[1]}`, platform: 'V-EXTRACT' });
                         setLoading(false);
+                        addLog('Pormo直接抽出成功');
                         return;
                     }
                 }
 
                 if (cleanUrl.includes('x.com') || cleanUrl.includes('twitter.com')) {
                     try {
-                        const urlObj = new URL(cleanUrl);
+                        const urlObj = new URL(cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl}`);
                         cleanUrl = `https://twitter.com${urlObj.pathname}`;
+                        addLog('URLの正規化を行いました');
                     } catch (err) {}
                 }
 
                 let success = false;
-                const nodes = customNode ? [customNode, ...DEFAULT_NODES] : DEFAULT_NODES;
                 
-                for (const node of nodes) {
-                    try {
-                        addLog(`Node試行: ${new URL(node).hostname}`);
-                        const controller = new AbortController();
-                        const id = setTimeout(() => controller.abort(), 12000);
-                        const response = await fetch(`${node}/api/json`, {
-                            method: 'POST',
-                            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                url: cleanUrl, 
-                                videoQuality: '720', 
-                                downloadMode: 'video' 
-                            }),
-                            signal: controller.signal
-                        });
-                        clearTimeout(id);
-                        const data = await response.json();
-                        if (data.url || (data.status === 'picker' && data.picker?.[0]?.url)) {
-                            setResult({ url: data.url || data.picker[0].url, platform: 'NETWORK' });
-                            success = true;
-                            addLog('解析成功');
-                            break;
-                        }
-                    } catch (err) {}
+                // 1. まずCobalt APIを試す
+                const targetNodes = activeNodes.length > 0 ? activeNodes : (customNode ? [customNode, ...DEFAULT_NODES] : DEFAULT_NODES);
+                const configs = [ { videoQuality: '1080', twitterGif: true }, { } ];
+
+                for (const config of configs) {
+                    if (success) break;
+                    for (const node of targetNodes) {
+                        try {
+                            addLog(`接続試行: ${new URL(node).hostname}`);
+                            const controller = new AbortController();
+                            const id = setTimeout(() => controller.abort(), 8000);
+                            const response = await fetch(`${node}/api/json`, {
+                                method: 'POST',
+                                headers: { 
+                                    'Accept': 'application/json', 
+                                    'Content-Type': 'application/json' 
+                                },
+                                body: JSON.stringify({ 
+                                    url: cleanUrl,
+                                    downloadMode: 'video',
+                                    ...config
+                                }),
+                                signal: controller.signal
+                            });
+                            clearTimeout(id);
+                            
+                            if (response.status === 429) {
+                                addLog(`制限中(429): ${new URL(node).hostname}`, 'warn');
+                                continue;
+                            }
+
+                            const data = await response.json();
+                            if (data.url || (data.status === 'picker' && data.picker?.[0]?.url)) {
+                                setResult({ url: data.url || data.picker[0].url, platform: 'Cobalt Network' });
+                                success = true;
+                                addLog(`Cobalt成功 (${new URL(node).hostname})`);
+                                break;
+                            }
+                        } catch (err) { }
+                    }
+                }
+
+                // 2. Cobaltが全滅ならFxTwitterを試す (Dual Engine)
+                if (!success && (cleanUrl.includes('twitter.com') || cleanUrl.includes('x.com'))) {
+                    addLog('全Cobaltノード失敗。バックアップエンジンへ切り替え...');
+                    const backupResult = await tryFxTwitter(cleanUrl);
+                    if (backupResult) {
+                        setResult(backupResult);
+                        success = true;
+                    }
                 }
 
                 if (!success) {
                     if (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(cleanUrl)) {
                         setResult({ url: cleanUrl, platform: 'DIRECT' });
+                        addLog('直リンクモード');
                     } else {
-                        setError('Twitter側の規制によりブロックされました。モバイル通信(4G/5G)で試してください。');
+                        setError('すべての解析エンジンで失敗しました。Twitterの規制が強すぎる可能性があります。時間を置いてください。');
+                        addLog('全エンジンで取得失敗', 'error');
                     }
                 }
                 setLoading(false);
-                checkApiStatus();
+                if (activeNodes.length === 0) checkApiStatus(); 
             };
 
             const startDownload = async (e) => {
                 e.preventDefault();
                 if (!result) return;
                 setDownloading(true);
-                addLog('保存プロセス実行中...');
+                addLog('保存を開始...');
                 
                 try {
-                    const response = await fetch(result.url, { method: 'GET' });
-                    if (!response.ok) throw new Error();
+                    const response = await fetch(result.url, { method: 'GET', mode: 'cors' });
+                    if (!response.ok) throw new Error('CORS');
                     const blob = await response.blob();
                     const blobUrl = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
+                    a.style.display = 'none';
                     a.href = blobUrl;
                     a.download = `V-SAVER-${Date.now()}.mp4`;
                     document.body.appendChild(a);
                     a.click();
-                    setTimeout(() => { document.body.removeChild(a); window.URL.revokeObjectURL(blobUrl); }, 1000);
+                    setTimeout(() => { document.body.removeChild(a); window.URL.revokeObjectURL(blobUrl); }, 2000);
+                    addLog('完了');
                 } catch (err) { 
-                    addLog('ブラウザ制限により別タブで開きます', 'warn');
+                    addLog('別タブで開きます', 'warn');
                     const a = document.createElement('a');
                     a.href = result.url;
                     a.target = '_blank';
                     a.rel = 'noopener noreferrer';
                     a.click();
-                    setError('ブラウザのセキュリティ制限により自動保存できませんでした。開いた動画画面を【長押し】または【右クリック】して保存してください。');
+                    setError('自動保存できませんでした。開いた動画を長押しして保存してください。');
                 }
                 finally { setTimeout(() => setDownloading(false), 2000); }
-            };
-
-            const copyUrl = (e) => {
-                e.preventDefault();
-                const el = document.createElement('textarea');
-                el.value = result.url;
-                el.style.position = 'fixed'; el.style.opacity = '0';
-                document.body.appendChild(el); el.select();
-                document.execCommand('copy'); document.body.removeChild(el);
-                setCopied(true); setTimeout(() => setCopied(false), 2000);
             };
 
             return (
@@ -246,8 +332,9 @@
                     <div className="relative z-10 max-w-xl mx-auto px-6 pt-12">
                         <div className="flex justify-between items-center mb-8">
                             <button onClick={checkApiStatus} className="flex items-center gap-2 bg-white/5 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 active:scale-95 transition-all">
-                                <Icon name={apiStatus === 'Checking...' ? 'loader-2' : 'activity'} size={14} className={apiStatus === 'Online' ? 'text-green-400' : (apiStatus === 'Limited' ? 'text-orange-400' : 'animate-spin text-gray-400')} />
+                                <Icon name={apiStatus === 'Checking...' ? 'loader-2' : 'activity'} size={14} className={apiStatus.includes('Active') ? 'text-green-400' : (apiStatus === 'All Dead' ? 'text-red-400' : 'animate-spin text-gray-400')} />
                                 <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Node: {apiStatus}</span>
+                                <Icon name="refresh-cw" size={10} className={`ml-1 opacity-40 ${apiStatus === 'Checking...' ? 'animate-spin' : ''}`} />
                             </button>
                             <div className="flex gap-2">
                                 <button onClick={() => setShowLogs(!showLogs)} className={`p-2 rounded-xl transition-colors ${showLogs ? 'bg-indigo-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}><Icon name="terminal" size={20} /></button>
@@ -306,32 +393,27 @@
                         {result && (
                             <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-6">
                                 <div className="bg-white/5 backdrop-blur-3xl rounded-[3rem] border border-white/10 p-2 shadow-2xl overflow-hidden">
-                                    <div className="p-6 space-y-8">
+                                    <div className="p-6 space-y-8 font-sans text-center">
                                         <div className="bg-black/40 rounded-[2.5rem] aspect-video relative overflow-hidden ring-1 ring-white/10 flex items-center justify-center shadow-inner group">
                                             {!videoError ? (
-                                                <video ref={videoRef} key={result.url} src={result.url} className="w-full h-full object-contain relative z-10" controls playsInline webkit-playsinline="true" onError={() => setVideoError(true)} />
+                                                <video ref={videoRef} key={result.url} src={result.url} className="w-full h-full object-contain relative z-10" controls playsInline webkit-playsinline="true" crossOrigin="anonymous" onError={() => setVideoError(true)} />
                                             ) : (
                                                 <div className="flex flex-col items-center gap-4 p-12 text-center z-10">
                                                     <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-2 shadow-xl ring-1 ring-white/10"><Icon name="file-video" size={40} className="opacity-20 text-indigo-400" /></div>
-                                                    <p className="text-lg font-black tracking-tight text-white/90 uppercase italic">Preview Locked</p>
+                                                    <p className="text-lg font-black tracking-tight text-white/90 uppercase italic">Preview Blocked</p>
                                                 </div>
                                             )}
                                             <div className="absolute top-4 left-4 z-20"><div className="bg-indigo-600/90 backdrop-blur-md text-white text-[10px] px-3 py-1.5 rounded-xl font-black uppercase border border-white/20 shadow-lg tracking-widest italic">{result.platform}</div></div>
                                         </div>
-                                        <div className="space-y-4">
-                                            <button onClick={startDownload} disabled={downloading} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] animate-gradient-x text-white font-black py-6 rounded-[2.5rem] flex items-center justify-center gap-4 hover:shadow-[0_0_40px_rgba(99,102,241,0.4)] hover:scale-[1.02] transition-all active:scale-[0.97] disabled:opacity-50 uppercase tracking-tighter">
-                                                {downloading ? <Icon name="loader-2" className="animate-spin" size={28} /> : <Icon name="download" size={28} />}<span className="text-xl">ビデオを保存</span>
-                                            </button>
-                                            <button onClick={copyUrl} className="w-full flex items-center justify-center gap-3 bg-white/5 text-gray-300 font-bold py-5 rounded-[2rem] border border-white/10 hover:bg-white/10 transition-all active:scale-[0.95] backdrop-blur-md">
-                                                {copied ? <Icon name="check-circle-2" size={20} className="text-green-400" /> : <Icon name="copy" size={20} />}<span className="text-lg uppercase">直リンクをコピー</span>
-                                            </button>
-                                        </div>
+                                        <button onClick={startDownload} disabled={downloading} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] animate-gradient-x text-white font-black py-6 rounded-[2.5rem] flex items-center justify-center gap-4 hover:shadow-[0_0_40px_rgba(99,102,241,0.4)] hover:scale-[1.02] transition-all active:scale-[0.97] disabled:opacity-50 uppercase tracking-tighter">
+                                            {downloading ? <Icon name="loader-2" className="animate-spin" size={28} /> : <Icon name="download" size={28} />}<span className="text-xl">ビデオを保存</span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        <footer className="mt-20 text-center space-y-6 opacity-20 hover:opacity-100 transition-opacity duration-500">
+                        <footer className="mt-20 text-center space-y-6 opacity-20 group hover:opacity-100 transition-opacity duration-500 font-sans">
                             <div className="flex justify-center gap-8 text-gray-500 text-[10px] font-black uppercase tracking-widest">
                                 <div className="flex flex-col items-center gap-2"><Icon name="shield-check" size={20} /><span>Secure</span></div>
                                 <div className="flex flex-col items-center gap-2"><Icon name="zap" size={20} /><span>Fast</span></div>
