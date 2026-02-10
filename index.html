@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
     <title>V-SAVER. | Premium Video Downloader</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -53,6 +54,7 @@
                 'alert-circle': <><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></>,
                 'file-video': <><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="m10 11 5 3-5 3v-6z" /></>,
                 'download': <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></>,
+                'check-circle-2': <><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></>,
                 'smartphone': <><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></>,
                 'tablet': <><rect x="4" y="2" width="16" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></>,
                 'monitor': <><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></>,
@@ -143,11 +145,11 @@
                     const sortedNodes = validNodes.map(r => r.node);
                     setActiveNodes(sortedNodes);
                     setApiStatus(`${validNodes.length} Active`);
-                    addLog(`${validNodes.length}個のノードが生存中。最速: ${new URL(sortedNodes[0]).hostname}`);
+                    addLog(`${validNodes.length}個の有効なノードを確認。最速: ${new URL(sortedNodes[0]).hostname}`);
                 } else {
                     setActiveNodes([]);
                     setApiStatus('All Dead');
-                    addLog('Cobaltノードは全滅しています', 'error');
+                    addLog('すべてのCobaltノードが応答していません', 'error');
                 }
             };
 
@@ -206,12 +208,12 @@
                     try {
                         const urlObj = new URL(cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl}`);
                         cleanUrl = `https://twitter.com${urlObj.pathname}`;
+                        addLog('URLの正規化を行いました');
                     } catch (err) {}
                 }
 
                 let success = false;
                 
-                // 1. Cobalt API 試行
                 const targetNodes = activeNodes.length > 0 ? activeNodes : (customNode ? [customNode, ...DEFAULT_NODES] : DEFAULT_NODES);
                 const configs = [ { videoQuality: '1080', twitterGif: true }, { } ];
 
@@ -237,7 +239,10 @@
                             });
                             clearTimeout(id);
                             
-                            if (response.status === 429) continue;
+                            if (response.status === 429) {
+                                addLog(`制限中(429): ${new URL(node).hostname}`, 'warn');
+                                continue;
+                            }
 
                             const data = await response.json();
                             if (data.url || (data.status === 'picker' && data.picker?.[0]?.url)) {
@@ -250,7 +255,6 @@
                     }
                 }
 
-                // 2. FxTwitter 試行 (Cobalt失敗時)
                 if (!success && (cleanUrl.includes('twitter.com') || cleanUrl.includes('x.com'))) {
                     addLog('全Cobaltノード応答なし。バックアップへ切り替えます...');
                     const backupResult = await tryFxTwitter(cleanUrl);
@@ -280,6 +284,7 @@
                 addLog('保存を開始...');
                 
                 try {
+                    // サーバー環境(Vercel等)ではCORSエラーが出るため、まずはfetchを試みる
                     const response = await fetch(result.url, { method: 'GET', mode: 'cors' });
                     if (!response.ok) throw new Error('CORS');
                     const blob = await response.blob();
@@ -293,13 +298,13 @@
                     setTimeout(() => { document.body.removeChild(a); window.URL.revokeObjectURL(blobUrl); }, 2000);
                     addLog('完了');
                 } catch (err) { 
-                    addLog('別タブで開きます', 'warn');
+                    addLog('ブラウザ制限により別タブで開きます', 'warn');
                     const a = document.createElement('a');
                     a.href = result.url;
                     a.target = '_blank';
                     a.rel = 'noopener noreferrer';
                     a.click();
-                    setError('自動保存できませんでした。開いた動画を長押しして保存してください。');
+                    setError('ブラウザのセキュリティ制限により自動保存できませんでした。開いた動画を【長押し】または【右クリック】して保存してください。');
                 }
                 finally { setTimeout(() => setDownloading(false), 2000); }
             };
@@ -375,7 +380,14 @@
                         {result && (
                             <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-6">
                                 <div className="bg-white/5 backdrop-blur-3xl rounded-[3rem] border border-white/10 p-2 shadow-2xl overflow-hidden">
-                                    <div className="p-6 space-y-8 font-sans text-center">
+                                    <div className="p-6 space-y-6 font-sans text-center"> 
+                                        
+                                        <div className="flex justify-start px-2">
+                                            <div className="bg-indigo-600/90 backdrop-blur-md text-white text-[10px] px-3 py-1.5 rounded-xl font-black uppercase border border-white/20 shadow-lg tracking-widest italic">
+                                                {result.platform || 'Detected'}
+                                            </div>
+                                        </div>
+
                                         <div className="bg-black/40 rounded-[2.5rem] aspect-video relative overflow-hidden ring-1 ring-white/10 flex items-center justify-center shadow-inner group">
                                             {!videoError ? (
                                                 <video ref={videoRef} key={result.url} src={result.url} className="w-full h-full object-contain relative z-10" controls playsInline webkit-playsinline="true" crossOrigin="anonymous" onError={() => setVideoError(true)} />
@@ -385,7 +397,6 @@
                                                     <p className="text-lg font-black tracking-tight text-white/90 uppercase italic">Preview Blocked</p>
                                                 </div>
                                             )}
-                                            <div className="absolute top-4 left-4 z-20"><div className="bg-indigo-600/90 backdrop-blur-md text-white text-[10px] px-3 py-1.5 rounded-xl font-black uppercase border border-white/20 shadow-lg tracking-widest italic">{result.platform}</div></div>
                                         </div>
                                         <button onClick={startDownload} disabled={downloading} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] animate-gradient-x text-white font-black py-6 rounded-[2.5rem] flex items-center justify-center gap-4 hover:shadow-[0_0_40px_rgba(99,102,241,0.4)] hover:scale-[1.02] transition-all active:scale-[0.97] disabled:opacity-50 uppercase tracking-tighter">
                                             {downloading ? <Icon name="loader-2" className="animate-spin" size={28} /> : <Icon name="download" size={28} />}<span className="text-xl">ビデオを保存</span>
